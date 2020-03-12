@@ -124,7 +124,7 @@ for i in range(len(response["events"])):
         games["current_matches"].append(game)
 
 
-print needed_data
+# print needed_data
 doc = json.dumps(games, indent = 4)
 
 
