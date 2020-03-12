@@ -2,9 +2,16 @@
 import re
 import requests
 from bs4 import BeautifulSoup
-from selenium import webdriver
 import json
-import urllib
+import firebase_admin
+from firebase_admin import credentials
+from firebase_admin import firestore
+
+# Use a service account
+cred = credentials.Certificate('./serviceAccountKey.json')
+firebase_admin.initialize_app(cred)
+
+db = firestore.client()
 
 # Pull in the website's source code
 url = 'http://www.espn.com/mlb/history/leaders/_/breakdown/season/year/2018/start/1'
@@ -90,31 +97,46 @@ games = {
     "current_matches": []
 }
 
-# Add game statistics to array
+# Add games to dict for conversion to JSON
 for i in range(len(response["events"])):
 
-    # print response["events"][i]["competitions"][0].keys()
     if "odds" in response["events"][i]["competitions"][0].keys():
         game = {
             "title": response["events"][i]["name"],
             "date": response["events"][i]["date"],
+            "status": response["events"][i]["status"]["type"]["name"],
             "team1": response["events"][i]["competitions"][0]["competitors"][0]["team"]["abbreviation"],
             "team2": response["events"][i]["competitions"][0]["competitors"][1]["team"]["abbreviation"],
             "spread": response["events"][i]["competitions"][0]["odds"][0]["details"]
         }
-
         games["future_matches"].append(game)
+
     else:
         game = {
             "title": response["events"][i]["name"],
             "date": response["events"][i]["date"],
+            "status": response["events"][i]["status"]["type"]["name"],
             "team1": response["events"][i]["competitions"][0]["competitors"][0]["team"]["abbreviation"],
             "team2": response["events"][i]["competitions"][0]["competitors"][1]["team"]["abbreviation"],
             "team1_score": response["events"][i]["competitions"][0]["competitors"][0]["score"],
-            "team2_score": response["events"][i]["competitions"][0]["competitors"][1]["score"]
+            "team2_score": response["events"][i]["competitions"][0]["competitors"][1]["score"],
         }
-
         games["current_matches"].append(game)
 
+
 print needed_data
-print json.dumps(games, indent = 4)
+doc = json.dumps(games, indent = 4)
+
+
+
+doc_ref = db.collection(u'current_matches').document(u'idk')
+# doc_ref.set({
+#     "title": response["events"][0]["name"],
+#     "date": response["events"][0]["date"],
+#     "team1": response["events"][0]["competitions"][0]["competitors"][0]["team"]["abbreviation"],
+#     "team2": response["events"][0]["competitions"][0]["competitors"][1]["team"]["abbreviation"],
+#     "team1_score": response["events"][0]["competitions"][0]["competitors"][0]["score"],
+#     "team2_score": response["events"][0]["competitions"][0]["competitors"][1]["score"]
+# })
+
+doc_ref.set(games)
