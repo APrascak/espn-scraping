@@ -85,7 +85,7 @@ doc = json.dumps(games, indent = 4)
 
 
 # Update Firestore document
-doc_ref = db.collection(u'current_matches').document(u'idk')
+doc_ref = db.collection(u'current_matches').document(u'nba')
 doc_ref.set(games)
 
 
