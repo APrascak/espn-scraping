@@ -1,3 +1,11 @@
+'''
+ESPN NBA Web Scraper
+Developer: Alex Prascak
+* Organizes game information and uploads to Firestore database
+* Runs on Google Compute Engine as cron job
+'''
+
+
 # Import Libraries
 import re
 import requests
@@ -6,42 +14,87 @@ import json
 import firebase_admin
 from firebase_admin import credentials
 from firebase_admin import firestore
+import datetime
 
-# Use a service account
+# Pull credentials from service account file
 cred = credentials.Certificate('./serviceAccountKey.json')
-firebase_admin.initialize_app(cred)
 
+
+# Establish firebase admin app and DB reference
+firebase_admin.initialize_app(cred)
 db = firestore.client()
 
-# Pull in the website's source code
-url = 'http://www.espn.com/mlb/history/leaders/_/breakdown/season/year/2018/start/1'
-page = requests.get(url)
-soup = BeautifulSoup(page.text, 'html.parser')
 
-players = soup.find_all('tr', attrs = {'class': re.compile('row player-10-')})
+# Find all script tags from the website
+nba_link = 'https://www.espn.com/nba/scoreboard'
+page1 = requests.get(nba_link)
+nba_soup = BeautifulSoup(page1.text, 'html.parser')
+scripts = nba_soup.find_all('script')
 
-player_stats = {
-    "players": []
+
+# Find and retrieve the script tag containing the game information
+i = 0
+while (scripts[i].get_text())[0:6] != 'window':
+    i += 1
+solution = scripts[i].get_text()
+needed_data = solution[30:solution.find(';window.espn.scoreboardSettings')]
+
+
+# Text to JSON conversion
+response = json.loads(needed_data)
+
+# Create dict to structure data
+# Place timestamp
+games = {
+    "last_updated": unicode(datetime.datetime.now().strftime("%m/%d/%Y, %H:%M:%S")),
+    "future_matches": [],
+    "current_matches": []
 }
 
-for player in players:
-    stats = [stat.get_text() for stat in player.find_all('td')]
+# Add game information to dict
+for i in range(len(response["events"])):
 
-    x = {
-        "name": stats[1],
-        "GA": stats[3],
-        "AB": stats[4],
-        "R": stats[5],
-        "BA": stats[15]
-    }
+    if "odds" in response["events"][i]["competitions"][0].keys():
+        game = {
+            "match_id": response["events"][i]["links"][0]["href"],
+            "title": response["events"][i]["name"],
+            "date": response["events"][i]["date"],
+            "status": response["events"][i]["status"]["type"]["name"],
+            "team1": response["events"][i]["competitions"][0]["competitors"][0]["team"]["abbreviation"],
+            "team2": response["events"][i]["competitions"][0]["competitors"][1]["team"]["abbreviation"],
+            "spread": response["events"][i]["competitions"][0]["odds"][0]["details"]
+        }
+        games["future_matches"].append(game)
 
-    player_stats["players"].append(x)
+    else:
+        game = {
+            "match_id": response["events"][i]["links"][0]["href"],
+            "title": response["events"][i]["name"],
+            "date": response["events"][i]["date"],
+            "status": response["events"][i]["status"]["type"]["name"],
+            "team1": response["events"][i]["competitions"][0]["competitors"][0]["team"]["abbreviation"],
+            "team2": response["events"][i]["competitions"][0]["competitors"][1]["team"]["abbreviation"],
+            "team1_score": response["events"][i]["competitions"][0]["competitors"][0]["score"],
+            "team2_score": response["events"][i]["competitions"][0]["competitors"][1]["score"],
+        }
+        games["current_matches"].append(game)
 
-y = json.dumps(player_stats, indent=4)
+
+# Convert dict to JSON
+doc = json.dumps(games, indent = 4)
+
+
+# Update Firestore document
+doc_ref = db.collection(u'current_matches').document(u'idk')
+doc_ref.set(games)
+
+
+
 
 
 '''
-This is where the actual application begins.
+DATA FORMAT:
+-----------------------------
 Goal: {
     betting_matches: [
         {
@@ -77,66 +130,3 @@ Goal: {
     ]
 }
 '''
-
-nba = 'https://www.espn.com/nba/scoreboard'
-page1 = requests.get(nba)
-nba_soup = BeautifulSoup(page1.text, 'html.parser')
-test = nba_soup.find_all('script')
-# test = nba_soup.find_all('article')
-solution = test[13].get_text()
-needed_data = solution[30:solution.find(';window.espn.scoreboardSettings')]
-
-# print needed_data
-response = json.loads(needed_data)
-# print json.dumps(yee["events"], indent=4)
-# for key, value in yee["events"][0].items():
-    # print key, value
-
-games = {
-    "future_matches": [],
-    "current_matches": []
-}
-
-# Add games to dict for conversion to JSON
-for i in range(len(response["events"])):
-
-    if "odds" in response["events"][i]["competitions"][0].keys():
-        game = {
-            "title": response["events"][i]["name"],
-            "date": response["events"][i]["date"],
-            "status": response["events"][i]["status"]["type"]["name"],
-            "team1": response["events"][i]["competitions"][0]["competitors"][0]["team"]["abbreviation"],
-            "team2": response["events"][i]["competitions"][0]["competitors"][1]["team"]["abbreviation"],
-            "spread": response["events"][i]["competitions"][0]["odds"][0]["details"]
-        }
-        games["future_matches"].append(game)
-
-    else:
-        game = {
-            "title": response["events"][i]["name"],
-            "date": response["events"][i]["date"],
-            "status": response["events"][i]["status"]["type"]["name"],
-            "team1": response["events"][i]["competitions"][0]["competitors"][0]["team"]["abbreviation"],
-            "team2": response["events"][i]["competitions"][0]["competitors"][1]["team"]["abbreviation"],
-            "team1_score": response["events"][i]["competitions"][0]["competitors"][0]["score"],
-            "team2_score": response["events"][i]["competitions"][0]["competitors"][1]["score"],
-        }
-        games["current_matches"].append(game)
-
-
-# print needed_data
-doc = json.dumps(games, indent = 4)
-
-
-
-doc_ref = db.collection(u'current_matches').document(u'idk')
-# doc_ref.set({
-#     "title": response["events"][0]["name"],
-#     "date": response["events"][0]["date"],
-#     "team1": response["events"][0]["competitions"][0]["competitors"][0]["team"]["abbreviation"],
-#     "team2": response["events"][0]["competitions"][0]["competitors"][1]["team"]["abbreviation"],
-#     "team1_score": response["events"][0]["competitions"][0]["competitors"][0]["score"],
-#     "team2_score": response["events"][0]["competitions"][0]["competitors"][1]["score"]
-# })
-
-doc_ref.set(games)
